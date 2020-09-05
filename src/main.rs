@@ -4,6 +4,105 @@ use std::net::UdpSocket;
 use std::io::Cursor;
 use byteorder::{LittleEndian, ReadBytesExt};
 
+// struct DirtData {
+//     time: f32,
+//     lap_time: f32,
+//     lap_distance: f32,
+//     total_distance: f32,
+//     pos_x: f32,
+//     pos_y: f32,
+//     pos_z: f32,
+//     speed: f32,
+//     velocity_x: f32,
+//     velocity_y: f32,
+//     velocity_z: f32,
+//     roll_x: f32,
+//     roll_y: f32,
+//     roll_z: f32,
+//     pitch_x: f32,
+//     pitch_y: f32,
+//     pitch_z: f32,
+//     suspension_pos_bl: f32,
+//     suspension_pos_br: f32,
+//     suspension_pos_fl: f32,
+//     suspension_pos_fr: f32,
+//     suspension_velocity_bl: f32,
+//     suspension_velocity_br: f32,
+//     suspension_velocity_fl: f32,
+//     suspension_velocity_fr: f32,
+//     wheel_velocity_bl: f32,
+//     wheel_velocity_br: f32,
+//     wheel_velocity_fl: f32,
+//     wheel_velocity_fr: f32,
+//     throttle: f32,
+//     steering: f32,
+//     brake: f32,
+//     clutch: f32,
+//     gear: f32,
+//     gforce_lat: f32,
+//     geforce_lon: f32,
+//     lap: f32,
+//     engine_speed: f32,
+//     sli_pro_native_support: f32, //Unused
+//     car_position: f32,
+//     kers_level: f32, //Unused
+//     kers_max_level: f32, //Unused
+//     drs: f32, //Unused
+//     traction_control: f32, //Unused
+//     abs: f32, //Unused
+//     fuel_in_tank: f32, //Unused
+//     fuel_capacity: f32, //Unused
+//     in_pits: f32, //Unused
+//     sector: f32, //Unused
+//     sector1_time: f32,
+//     sector2_time: f32,
+//     brake_temp_bl: f32,
+//     brake_temp_br: f32,
+//     brake_temp_fl: f32,
+//     brake_temp_fr: f32,
+//     track_size: f32, //Unused
+//     last_lap_time_f1: f32, //Unused
+//     max_rpm_f1: f32, //Unused
+//     idle_rpm: f32, //Unused
+//     current_lap_rx: f32,
+//     total_laps: f32, //rx only, rally = 1
+//     track_length: f32,
+//     last_lap_time: f32, //stage time in rally
+//     max_rpm: f32
+// }
+
+struct DirtData {
+    time: f32,
+    lap_time: f32,
+    speed: f32,
+    throttle: f32,
+    steering: f32,
+    brake: f32,
+    clutch: f32,
+    gear: u8,
+    lap: u8,
+    rpm: f32,
+    max_rpm: f32,
+}
+
+impl Default for DirtData {
+    fn default() -> DirtData {
+        DirtData{
+            time: 0.0,
+            lap_time: 0.0,
+            speed: 0.0,
+            throttle: 0.0,
+            steering: 0.0,
+            brake: 0.0,
+            clutch: 0.0,
+            gear: 0,
+            lap: 1,
+            rpm: 0.0,
+            max_rpm: 0.0
+        }
+    }
+}
+
 fn main() -> std::io::Result<()> {
     {
         let mut socket = UdpSocket::bind("127.0.0.1:20777")?;
@@ -16,32 +115,38 @@ fn main() -> std::io::Result<()> {
             let (recv, peer) = socket.recv_from(&mut buf)?;
 
             let mut reader = Cursor::new(&buf);
+
+            
     
+
+            let mut data: DirtData = DirtData::default();
+            
             for i in 0..68{
                 let value = reader.read_f32::<LittleEndian>().unwrap();
-                let output = match i {
-                    7 => Some("Speed"),
-                    29 => Some("Throttle"),
-                    30 => Some("Steering"),
-                    31 => Some("Brake"),
-                    32 => Some("Clutch"),
-                    33 => Some("Gear"),
-                    37 => Some("RPM"),
-                    _ => None
-                };
-                if output.is_some() {
-                    print!("{}: {},", output.unwrap(), value);
-                }
+
+
+               //put data into struct
+               match i {
+                    0 => {data = DirtData{time: value, ..data}},
+                    1 => {data = DirtData{lap_time: value, ..data}},
+                    7 => {data = DirtData{speed: value, ..data}},
+                    29 => {data = DirtData{throttle: value, ..data}},
+                    30 => {data = DirtData{steering: value, ..data}},
+                    31 => {data = DirtData{brake: value, ..data}},
+                    32 => {data = DirtData{clutch: value, ..data}},
+                    33 => {data = DirtData{gear: value as u8, ..data}},
+                    36 => {data = DirtData{lap: value as u8, ..data}},
+                    37 => {data = DirtData{rpm: value, ..data}},
+                    63 => {data = DirtData{max_rpm: value, ..data}},
+                    _ => {}
+               }    
             }
-            println!();
+            println!("Speed: {}, Throttle: {}, Steering: {}, Brake: {}, Clutch: {}, Gear: {}, RPM: {}",
+                        data.speed, data.throttle, data.steering, data.brake, data.clutch, data.gear, data.rpm);
             // for i in 0..68{
             //     print!("{:x?} ", buf[i]);
             // }
         }
-        // Redeclare `buf` as slice of the received data and send reverse data back to origin.
-        // let buf = &mut buf[..amt];
-        // buf.reverse();
-        // socket.send_to(buf, &src)?;
     } // the socket is closed here
     Ok(())
 }
