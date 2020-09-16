@@ -2,7 +2,12 @@ extern crate byteorder;
 
 use std::net::UdpSocket;
 use std::io::Cursor;
+use std::io;
+use std::io::prelude::*;
 use byteorder::{LittleEndian, ReadBytesExt};
+use serde::Serialize;
+use std::sync::mpsc::{self, TryRecvError};
+use std::time::Duration;
 
 // struct DirtData {
 //     time: f32,
@@ -71,6 +76,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 //     max_rpm: f32
 // }
 
+#[derive(Debug, Serialize, Copy, Clone)]
 struct DirtData {
     time: f32,
     lap_time: f32,
@@ -105,47 +111,94 @@ impl Default for DirtData {
 
 fn main() -> std::io::Result<()> {
     {
-        let mut socket = UdpSocket::bind("127.0.0.1:20777")?;
+        //sending from main to udp thread
+        let (main_tx, main_rx) = mpsc::channel();
 
-        // Receives a single datagram message on the socket. If `buf` is too small to hold
-        // the message, it will be cut off.
-        let mut buf = vec![0u8; 68 * std::mem::size_of::<f32>()];
-        loop {
-            println!("_____________________________________");
-            let (recv, peer) = socket.recv_from(&mut buf)?;
+        //sending from udp thread to main
+        let (udp_tx, udp_rx) = mpsc::channel();
 
-            let mut reader = Cursor::new(&buf);
+        let stats: Vec<DirtData> = Vec::new();
+        std::thread::spawn(move || {
+            let mut stats: Vec<DirtData> = Vec::new();
+            let mut socket = UdpSocket::bind("127.0.0.1:20777").expect("socket failed to open");
+            socket.set_read_timeout(Some(Duration::new(1,0))); //set timeout to 1 second
 
+            // Receives a single datagram message on the socket. If `buf` is too small to hold
+            // the message, it will be cut off.
+            let mut buf = vec![0u8; 68 * std::mem::size_of::<f32>()];
             
+            loop {
+                println!("_____________________________________");
+                if(socket.recv_from(&mut buf).is_ok()){
+                    let mut reader = Cursor::new(&buf);
     
+                
+        
+    
+                    let mut data: DirtData = DirtData::default();
+                    
+                    for i in 0..68{
+                        let value = reader.read_f32::<LittleEndian>().unwrap();
+        
+        
+                       //put data into struct
+                       match i {
+                            0 => {data = DirtData{time: value, ..data}},
+                            1 => {data = DirtData{lap_time: value, ..data}},
+                            7 => {data = DirtData{speed: value, ..data}},
+                            29 => {data = DirtData{throttle: value, ..data}},
+                            30 => {data = DirtData{steering: value, ..data}},
+                            31 => {data = DirtData{brake: value, ..data}},
+                            32 => {data = DirtData{clutch: value, ..data}},
+                            33 => {data = DirtData{gear: value as u8, ..data}},
+                            36 => {data = DirtData{lap: value as u8, ..data}},
+                            37 => {data = DirtData{rpm: value, ..data}},
+                            63 => {data = DirtData{max_rpm: value, ..data}},
+                            _ => {}
+                       }    
+                    }
+        
+                    
+                    println!("Speed: {}, Throttle: {}, Steering: {}, Brake: {}, Clutch: {}, Gear: {}, RPM: {}",
+                                data.speed, data.throttle, data.steering, data.brake, data.clutch, data.gear, data.rpm);
+                    stats.push(data);
+                    // for i in 0..68{
+                    //     print!("{:x?} ", buf[i]);
+                    // }
+                    
 
-            let mut data: DirtData = DirtData::default();
-            
-            for i in 0..68{
-                let value = reader.read_f32::<LittleEndian>().unwrap();
-
-
-               //put data into struct
-               match i {
-                    0 => {data = DirtData{time: value, ..data}},
-                    1 => {data = DirtData{lap_time: value, ..data}},
-                    7 => {data = DirtData{speed: value, ..data}},
-                    29 => {data = DirtData{throttle: value, ..data}},
-                    30 => {data = DirtData{steering: value, ..data}},
-                    31 => {data = DirtData{brake: value, ..data}},
-                    32 => {data = DirtData{clutch: value, ..data}},
-                    33 => {data = DirtData{gear: value as u8, ..data}},
-                    36 => {data = DirtData{lap: value as u8, ..data}},
-                    37 => {data = DirtData{rpm: value, ..data}},
-                    63 => {data = DirtData{max_rpm: value, ..data}},
-                    _ => {}
-               }    
+                }
+                //break loop if a keypress is done on another thread
+                match main_rx.try_recv() {
+                    Ok(_) => break,
+                    Err(msg) => {
+                        if msg == TryRecvError::Disconnected {
+                            break;
+                        }
+                    },
+                };
             }
-            println!("Speed: {}, Throttle: {}, Steering: {}, Brake: {}, Clutch: {}, Gear: {}, RPM: {}",
-                        data.speed, data.throttle, data.steering, data.brake, data.clutch, data.gear, data.rpm);
-            // for i in 0..68{
-            //     print!("{:x?} ", buf[i]);
-            // }
+            //send back stats
+            udp_tx.send(stats);
+        });
+        
+        //wait till user input
+        let stdin = io::stdin();
+        let stdin_lock = stdin.lock();
+        // let lines : Vec<String> = stdin_lock.lines().filter_map(|line| line.ok()).collect();
+        for line in stdin_lock.lines(){
+            println!("{}", line.expect("Broken"));
+            break;
+        }
+
+        //tell udp thread to stop
+        main_tx.send(());
+
+        let stats = udp_rx.recv().expect("Couldn't get game data from udp thread");
+        // write to csv
+        let mut writer = csv::Writer::from_writer(std::fs::File::create("a.csv").expect("can't write"));
+        for stat in stats{
+            writer.serialize(stat).expect("couldn't serialize");
         }
     } // the socket is closed here
     Ok(())
