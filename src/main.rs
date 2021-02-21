@@ -117,11 +117,10 @@ fn main() -> std::io::Result<()> {
         //sending from udp thread to main
         let (udp_tx, udp_rx) = mpsc::channel();
 
-        let stats: Vec<DirtData> = Vec::new();
         std::thread::spawn(move || {
             let mut stats: Vec<DirtData> = Vec::new();
-            let mut socket = UdpSocket::bind("127.0.0.1:20777").expect("socket failed to open");
-            socket.set_read_timeout(Some(Duration::new(1,0))); //set timeout to 1 second
+            let socket = UdpSocket::bind("127.0.0.1:20777").expect("socket failed to open");
+            socket.set_read_timeout(Some(Duration::new(1,0))).expect("unable to set timeout"); //set timeout to 1 second
 
             // Receives a single datagram message on the socket. If `buf` is too small to hold
             // the message, it will be cut off.
@@ -129,7 +128,7 @@ fn main() -> std::io::Result<()> {
             
             loop {
                 println!("_____________________________________");
-                if(socket.recv_from(&mut buf).is_ok()){
+                if socket.recv_from(&mut buf).is_ok() {
                     let mut reader = Cursor::new(&buf);
     
                 
@@ -179,7 +178,7 @@ fn main() -> std::io::Result<()> {
                 };
             }
             //send back stats
-            udp_tx.send(stats);
+            udp_tx.send(stats).expect("unable to communicate from UDP thread to main thread (internal error).");
         });
         
         //wait till user input
@@ -192,7 +191,7 @@ fn main() -> std::io::Result<()> {
         }
 
         //tell udp thread to stop
-        main_tx.send(());
+        main_tx.send(()).expect("unable to communicate from main thread to UDP thread");
 
         let stats = udp_rx.recv().expect("Couldn't get game data from udp thread");
         // write to csv
